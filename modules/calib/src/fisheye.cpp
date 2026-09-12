@@ -831,7 +831,11 @@ void cv::internal::ComputeJacobians(InputArrayOfArrays objectPoints, InputArrayO
         objectPoints.getMat(image_idx).convertTo(object, CV_64FC3);
         imagePoints.getMat (image_idx).convertTo(image, CV_64FC2);
 
-        bool imT = image.channels() == 1 && image.rows > image.cols;
+        // Since 5.x, Mat(std::vector<Point2d>) is a 1-D array that behaves as a row
+        // vector in arithmetics, so a 2-channel Nx1 image layout (accepted in 4.x)
+        // must be transposed to 1xN before the subtraction of the projected points.
+        bool imT = (image.channels() == 1 && image.rows > image.cols) ||
+                   (image.channels() == 2 && image.dims == 2 && image.rows > image.cols);
         Mat om(omc.getMat().col(image_idx)), T(Tc.getMat().col(image_idx));
 
         std::vector<Point2d> x;
@@ -897,7 +901,11 @@ void cv::internal::EstimateUncertainties(InputArrayOfArrays objectPoints, InputA
         objectPoints.getMat(image_idx).convertTo(object, CV_64FC3);
         imagePoints.getMat (image_idx).convertTo(image, CV_64FC2);
 
-        bool imT = image.channels() == 1 && image.rows > image.cols;
+        // Since 5.x, Mat(std::vector<Point2d>) is a 1-D array that behaves as a row
+        // vector in arithmetics, so a 2-channel Nx1 image layout (accepted in 4.x)
+        // must be transposed to 1xN before the subtraction of the projected points.
+        bool imT = (image.channels() == 1 && image.rows > image.cols) ||
+                   (image.channels() == 2 && image.dims == 2 && image.rows > image.cols);
 
         Mat om(omc.getMat().col(image_idx)), T(Tc.getMat().col(image_idx));
 

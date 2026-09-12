@@ -84,6 +84,51 @@ class calibration_test(NewOpenCVTests):
         self.assertTrue(imagePoints is not None)
         self.assertTrue(jacobian is not None)
 
+    def test_fisheye_calibrate_point_layouts(self):
+        # Regression test for https://github.com/opencv/opencv/issues/29692:
+        # cv.fisheye.calibrate() threw a size-mismatch error for (N, 1, C)
+        # point arrays in 5.x (accepted in 4.x); only (1, N, C) worked.
+        rng = np.random.RandomState(42)
+
+        xs, ys = np.meshgrid(np.arange(9) * 30.0, np.arange(6) * 30.0)
+        pattern = np.stack([xs.ravel(), ys.ravel(), np.zeros(54)], axis=1).astype(np.float32)
+
+        K_gt = np.array([[400., 0., 320.], [0., 400., 240.], [0., 0., 1.]])
+        D_gt = np.array([[-0.05], [0.002], [0.], [0.]])
+
+        objpoints, imgpoints = [], []
+        for _ in range(8):
+            axis = rng.rand(3) - 0.5
+            axis /= np.linalg.norm(axis)
+            rvec = (axis * (0.15 + rng.rand() * 0.5)).astype(np.float64)
+            tvec = np.array([(rng.rand() - 0.5) * 200., (rng.rand() - 0.5) * 160.,
+                             200. + rng.rand() * 400.])
+            imgpts, _ = cv.fisheye.projectPoints(pattern.reshape(-1, 1, 3), rvec, tvec, K_gt, D_gt)
+            objpoints.append(pattern)
+            imgpoints.append(imgpts.astype(np.float32).reshape(-1, 2))
+
+        flags = cv.CALIB_USE_INTRINSIC_GUESS + cv.CALIB_FIX_SKEW + cv.CALIB_RECOMPUTE_EXTRINSIC
+        results = []
+        for layout in ("N1C", "1NC"):
+            if layout == "N1C":
+                obj = [p.reshape(-1, 1, 3) for p in objpoints]
+                img = [p.reshape(-1, 1, 2) for p in imgpoints]
+            else:
+                obj = [p.reshape(1, -1, 3) for p in objpoints]
+                img = [p.reshape(1, -1, 2) for p in imgpoints]
+            rms, K_est, D_est, _rvecs, _tvecs = cv.fisheye.calibrate(
+                obj, img, (640, 480), K_gt.copy(), D_gt.copy(), flags=flags)
+            results.append((rms, K_est, D_est))
+
+        # both layouts must succeed and agree with each other ...
+        self.assertAlmostEqual(results[0][0], results[1][0], places=6)
+        self.assertLess(cv.norm(results[0][1] - results[1][1], cv.NORM_L1), 1e-6)
+        self.assertLess(cv.norm(results[0][2] - results[1][2], cv.NORM_L1), 1e-6)
+        # ... and recover the ground truth model
+        self.assertLess(results[0][0], 1e-3)
+        self.assertLess(cv.norm(results[0][1] - K_gt, cv.NORM_L1), 1e-2)
+        self.assertLess(cv.norm(results[0][2] - D_gt, cv.NORM_L1), 1e-2)
+
     def test_sampsonDistance_valid2D(self):
         pt1 = (np.random.rand(3, 10) * 256).astype(np.float64)
         pt2 = (np.random.rand(3, 10) * 256).astype(np.float64)
